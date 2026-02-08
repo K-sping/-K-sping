@@ -1,0 +1,274 @@
+<html lang="ja"><head>
+    <meta charset="UTF-8">
+    <title>Dark Dungeon - Complete Archive Edition</title>
+    <style>
+        body { background: #000; margin: 0; overflow: hidden; font-family: 'Courier New', Courier, monospace; }
+        canvas { display: block; image-rendering: pixelated; }
+
+        /* ミニマップ: 枠なし、背景透明、未探索は透過 */
+        #minimapContainer {
+            position: absolute; top: 20px; right: 20px;
+            width: 240px; height: 240px;
+            z-index: 10; pointer-events: none;
+        }
+        #minimapCanvas { width: 100%; height: 100%; image-rendering: pixelated; }
+
+        #archivePanel {
+            display: none; position: absolute; top: 50%; left: 50%;
+            transform: translate(-50%, -50%); 
+            background: rgba(10, 10, 15, 0.98);
+            color: #eee; padding: 25px; 
+            border: 1px solid #3a5a6a;
+            outline: 6px solid rgba(0, 0, 0, 0.6);
+            z-index: 100; width: 400px; box-shadow: 0 0 50px #000;
+        }
+        h3 { color: #4facfe; margin: 0 0 15px 0; text-align: center; border-bottom: 1px solid #222; padding-bottom: 10px; letter-spacing: 2px; }
+        .section-label { font-size: 10px; color: #555; margin-bottom: 5px; display: block; }
+        textarea { 
+            width: 100%; background: #050505; color: #7fbdff; 
+            border: 1px solid #222; padding: 10px; font-size: 11px; 
+            resize: none; box-sizing: border-box; outline: none;
+            margin-bottom: 15px; font-family: inherit;
+        }
+        .btn-group { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+        button { background: #111; color: #888; border: 1px solid #333; padding: 10px; cursor: pointer; font-family: inherit; font-weight: bold; }
+        button:hover { background: #222; color: #fff; border-color: #4facfe; }
+        .primary-btn { border-color: #4a6a3a; color: #6a8a5a; }
+        .primary-btn:hover { background: #1a2a1a; border-color: #8afa8a; color: #8afa8a; }
+        .close-btn { grid-column: span 2; margin-top: 5px; border-color: #444; }
+    </style>
+</head>
+<body>
+    <div id="minimapContainer">
+        <canvas id="minimapCanvas" width="120" height="120"></canvas>
+    </div>
+
+    <div id="archivePanel" style="display: none;">
+        <h3>CRYSTAL ARCHIVE</h3>
+        <span class="section-label">CURRENT RECORD (SAVE THIS)</span>
+        <textarea id="exportArea" readonly="" spellcheck="false"></textarea>
+        <span class="section-label">INPUT ARCHIVE CODE (PASTE HERE)</span>
+        <textarea id="importArea" spellcheck="false" placeholder="Paste archive code here..."></textarea>
+        <div class="btn-group">
+            <button class="primary-btn" onclick="importData()">LOAD ARCHIVE</button>
+            <button onclick="copyExport()">COPY CODE</button>
+            <button class="close-btn" onclick="closeArchive()">RETURN TO GAME</button>
+        </div>
+    </div>
+    <canvas id="gameCanvas" width="666" height="952"></canvas>
+
+<script>
+const canvas = document.getElementById('gameCanvas');
+const ctx = canvas.getContext('2d');
+const mCanvas = document.getElementById('minimapCanvas');
+const mCtx = mCanvas.getContext('2d');
+const archivePanel = document.getElementById('archivePanel');
+const exportArea = document.getElementById('exportArea');
+const importArea = document.getElementById('importArea');
+
+const TILE_SIZE = 32;
+const VERSION = 1.6;
+
+// オーディオオブジェクトの作成
+const bgm = new Audio('ダンジョン探索BGM1.mp3');
+bgm.loop = true;      // ループ再生を有効にする
+bgm.volume = 0.01;    // 音量を調整（0.0 〜 1.0）
+
+// ブラウザの制限を回避するための再生トリガー
+let audioStarted = false;
+function startAudio() {
+    if (!audioStarted) {
+        bgm.play().catch(e => console.log("Audio play blocked:", e));
+        audioStarted = true;
+    }
+}
+
+// キー入力またはクリックで再生開始
+window.addEventListener('keydown', startAudio);
+window.addEventListener('mousedown', startAudio);
+
+let SEED = Math.random() * 10000;
+let p = { x: 0.5, y: 0.5, rx: 0.5, ry: 0.5 };
+let inventory = [];
+let isPaused = false;
+let exploredTiles = new Set();
+
+function hash(x, y) {
+    let h = Math.sin((x + SEED) * 12.9898 + (y + SEED) * 78.233) * 43758.5453;
+    return h - Math.floor(h);
+}
+
+function noise(x, y) {
+    let ix = Math.floor(x); let iy = Math.floor(y);
+    let fx = x - ix; let fy = y - iy;
+    let a = hash(ix, iy); let b = hash(ix + 1, iy);
+    let c = hash(ix, iy + 1); let d = hash(ix + 1, iy + 1);
+    let ux = fx * fx * (3 - 2 * fx); let uy = fy * fy * (3 - 2 * fy);
+    return (a * (1 - ux) + b * ux) + (c - a) * uy * (1 - ux) + (d - b) * ux * uy;
+}
+
+function getTile(tx, ty) {
+    let n = noise(tx * 0.1, ty * 0.1) * 0.7 + noise(tx * 0.2, ty * 0.2) * 0.3;
+    let isFloor = n > 0.45;
+    if (Math.abs(tx) <= 5 && Math.abs(ty) <= 5) isFloor = true;
+    let mossN = noise(tx * 0.15, ty * 0.15);
+    let isMoss = isFloor && (mossN > 0.7);
+    const CHUNK_SIZE = 50;
+    let chunkX = Math.floor(tx / CHUNK_SIZE);
+    let chunkY = Math.floor(ty / CHUNK_SIZE);
+
+    let isCrystal = false;
+    if (Math.abs(tx) <= 1 && Math.abs(ty) <= 1) {
+        isCrystal = true; isFloor = true;
+    } else if (!(chunkX === 0 && chunkY === 0)) {
+        let hasGemInChunk = hash(chunkX, chunkY) > 0.92;
+        if (hasGemInChunk) {
+            let offsetX = Math.floor(hash(chunkX, chunkY * 2) * (CHUNK_SIZE - 6)) + 3;
+            let offsetY = Math.floor(hash(chunkY, chunkX * 2) * (CHUNK_SIZE - 6)) + 3;
+            let centerX = chunkX * CHUNK_SIZE + offsetX;
+            let centerY = chunkY * CHUNK_SIZE + offsetY;
+            if (Math.abs(tx - centerX) <= 1 && Math.abs(ty - centerY) <= 1) {
+                if (isFloor) isCrystal = true;
+            }
+        }
+    }
+    return { isFloor, isMoss, isCrystal };
+}
+
+const keys = {};
+window.onkeydown = e => {
+    if (isPaused && e.key === 'Escape') { closeArchive(); return; }
+    if (isPaused) return;
+    keys[e.key] = true;
+    if (e.key === 'z' || e.key === 'Z') {
+        p.x = Math.floor(p.x) + 0.5; p.y = Math.floor(p.y) + 0.5;
+        if (getTile(Math.floor(p.x), Math.floor(p.y)).isCrystal) openArchive();
+    }
+};
+window.onkeyup = e => keys[e.key] = false;
+
+function openArchive() {
+    isPaused = true;
+    archivePanel.style.display = 'block';
+    const data = { v: VERSION, s: SEED, x: p.x, y: p.y, i: inventory, m: Array.from(exploredTiles) };
+    exportArea.value = btoa(JSON.stringify(data));
+    importArea.value = "";
+    exportArea.select();
+}
+
+function importData() {
+    try {
+        const decoded = JSON.parse(atob(importArea.value.trim()));
+        if (decoded.s !== undefined) {
+            SEED = Number(decoded.s); 
+            p.x = Number(decoded.x); 
+            p.y = Number(decoded.y);
+            inventory = decoded.i || []; 
+            exploredTiles = new Set(decoded.m || []); // 地図データ復元
+            
+            p.rx = p.x; p.ry = p.y; 
+            drawMinimap(); // 即座に地図を更新
+            closeArchive();
+        }
+    } catch (e) { alert("ARCHIVE ERROR: DATA INVALID"); }
+}
+
+function copyExport() { exportArea.select(); document.execCommand('copy'); }
+function closeArchive() { isPaused = false; archivePanel.style.display = 'none'; for (let k in keys) keys[k] = false; }
+
+function update() {
+    if (isPaused) return;
+    let dx = 0, dy = 0; const speed = 0.25;
+    if (keys['ArrowUp'] || keys['w']) dy -= speed;
+    if (keys['ArrowDown'] || keys['s']) dy += speed;
+    if (keys['ArrowLeft'] || keys['a']) dx -= speed;
+    if (keys['ArrowRight'] || keys['d']) dx += speed;
+    if (dx !== 0 && dy !== 0) { dx *= 0.707; dy *= 0.707; }
+    
+    let r = 0.3; 
+    if (getTile(Math.floor(p.x + dx + (dx > 0 ? r : -r)), Math.floor(p.y)).isFloor) p.x += dx;
+    if (getTile(Math.floor(p.x), Math.floor(p.y + dy + (dy > 0 ? r : -r))).isFloor) p.y += dy;
+    
+    p.rx += (p.x - p.rx) * 0.15; p.ry += (p.y - p.ry) * 0.15;
+
+    // 広範囲をマッピング（歩いた場所とその周囲）
+    for(let iy=-4; iy<=4; iy++) for(let ix=-4; ix<=4; ix++) exploredTiles.add(`${Math.floor(p.x+ix)},${Math.floor(p.y+iy)}`);
+}
+
+function draw() {
+    ctx.fillStyle = "#000"; ctx.fillRect(0, 0, canvas.width, canvas.height);
+    
+    // 描画範囲の拡張
+    const viewDist = 30; 
+    const cols = Math.floor(canvas.width / TILE_SIZE) + viewDist;
+    const rows = Math.floor(canvas.height / TILE_SIZE) + viewDist;
+    const startX = Math.floor(p.rx - cols / 2);
+    const startY = Math.floor(p.ry - rows / 2);
+
+    for (let y = startY; y < startY + rows; y++) {
+        for (let x = startX; x < startX + cols; x++) {
+            const sx = (x - p.rx) * TILE_SIZE + canvas.width / 2;
+            const sy = (y - p.ry) * TILE_SIZE + canvas.height / 2;
+            if (sx < -TILE_SIZE || sx > canvas.width || sy < -TILE_SIZE || sy > canvas.height) continue;
+
+            const tile = getTile(x, y);
+            if (tile.isFloor) {
+                if (tile.isCrystal) ctx.fillStyle = "#3a5a6a"; 
+                else if (tile.isMoss) ctx.fillStyle = "#1a2e1a"; 
+                else ctx.fillStyle = "#141414"; 
+                
+                ctx.fillRect(sx, sy, TILE_SIZE, TILE_SIZE);
+                ctx.fillStyle = (Math.abs(x + y) % 2 === 0) ? "rgba(0, 0, 0, 0.15)" : "rgba(255, 255, 255, 0.03)";
+                ctx.fillRect(sx, sy, TILE_SIZE, TILE_SIZE);
+            }
+        }
+    }
+
+    // 周辺減光
+    const grad = ctx.createRadialGradient(canvas.width/2, canvas.height/2, 0, canvas.width/2, canvas.height/2, Math.max(canvas.width, canvas.height) * 0.9);
+    grad.addColorStop(0, 'rgba(0,0,0,0)'); grad.addColorStop(1, 'rgba(0,0,0,1)');
+    ctx.fillStyle = grad; ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+    // プレイヤー
+    const cx = canvas.width / 2, cy = canvas.height / 2;
+    ctx.fillStyle = "#ffffaa"; ctx.fillRect(cx - 10, cy - 10, 20, 20);
+    ctx.fillStyle = "#fff"; ctx.fillRect(cx - 6, cy - 6, 12, 12);
+
+    drawMinimap();
+}
+
+function drawMinimap() {
+    mCtx.clearRect(0, 0, mCanvas.width, mCanvas.height);
+    
+    const range = 60; 
+    const centerX = Math.floor(p.x);
+    const centerY = Math.floor(p.y);
+
+    for (let y = -range; y < range; y++) {
+        for (let x = -range; x < range; x++) {
+            const tx = centerX + x;
+            const ty = centerY + y;
+            if (exploredTiles.has(`${tx},${ty}`)) {
+                const tile = getTile(tx, ty);
+                if (tile.isFloor) {
+                    if (tile.isCrystal) mCtx.fillStyle = "#4facfe";
+                    else if (tile.isMoss) mCtx.fillStyle = "#2a4a2a";
+                    else mCtx.fillStyle = "rgba(120, 120, 120, 0.4)";
+                } else {
+                    mCtx.fillStyle = "rgb(0, 0, 0)"; // 壁はしっかり黒
+                }
+                mCtx.fillRect(x + range, y + range, 1, 1);
+            }
+        }
+    }
+    // プレイヤー位置ドット
+    mCtx.fillStyle = "#fff"; mCtx.fillRect(range, range, 1, 1);
+}
+
+function loop() { update(); draw(); requestAnimationFrame(loop); }
+canvas.width = window.innerWidth; canvas.height = window.innerHeight;
+loop();
+window.onresize = () => { canvas.width = window.innerWidth; canvas.height = window.innerHeight; };
+</script>
+
+</body></html>
