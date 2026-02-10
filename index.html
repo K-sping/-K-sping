@@ -214,9 +214,9 @@ function draw() {
 
             const tile = getTile(x, y);
             if (tile.isFloor) {
-                if (tile.isCrystal) ctx.fillStyle = "#5a7a8a"; 
-                else if (tile.isMoss) ctx.fillStyle = "#2a4a2a"; 
-                else ctx.fillStyle = "#2a2a2a"; 
+                if (tile.isCrystal) ctx.fillStyle = "#4a6a7a"; 
+                else if (tile.isMoss) ctx.fillStyle = "#223c22"; 
+                else ctx.fillStyle = "#1f1f1f"; 
                 
                 ctx.fillRect(sx, sy, TILE_SIZE, TILE_SIZE);
                 ctx.fillStyle = (Math.abs(x + y) % 2 === 0) ? "rgba(0, 0, 0, 0.15)" : "rgba(255, 255, 255, 0.03)";
