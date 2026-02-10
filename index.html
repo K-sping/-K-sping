@@ -214,9 +214,9 @@ function draw() {
 
             const tile = getTile(x, y);
             if (tile.isFloor) {
-                if (tile.isCrystal) ctx.fillStyle = "#3a5a6a"; 
-                else if (tile.isMoss) ctx.fillStyle = "#1a2e1a"; 
-                else ctx.fillStyle = "#141414"; 
+                if (tile.isCrystal) ctx.fillStyle = "#5a7a8a"; 
+                else if (tile.isMoss) ctx.fillStyle = "#2a4a2a"; 
+                else ctx.fillStyle = "#2a2a2a"; 
                 
                 ctx.fillRect(sx, sy, TILE_SIZE, TILE_SIZE);
                 ctx.fillStyle = (Math.abs(x + y) % 2 === 0) ? "rgba(0, 0, 0, 0.15)" : "rgba(255, 255, 255, 0.03)";
@@ -227,7 +227,7 @@ function draw() {
 
     // 周辺減光
     const grad = ctx.createRadialGradient(canvas.width/2, canvas.height/2, 0, canvas.width/2, canvas.height/2, Math.max(canvas.width, canvas.height) * 0.9);
-    grad.addColorStop(0, 'rgba(0,0,0,0)'); grad.addColorStop(1, 'rgba(0,0,0,1)');
+    grad.addColorStop(0, 'rgba(0,0,0,0)'); grad.addColorStop(1, 'rgba(0,0,0,10)');
     ctx.fillStyle = grad; ctx.fillRect(0, 0, canvas.width, canvas.height);
 
     // プレイヤー
