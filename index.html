@@ -70,7 +70,7 @@ const TILE_SIZE = 32;
 const VERSION = 1.6;
 
 // オーディオオブジェクトの作成
-const bgm = new Audio('ダンジョン探索BGM1.mp3');
+const bgm = new Audio('ダンジョン探索BGM1.mp3');
 bgm.loop = true;      // ループ再生を有効にする
 bgm.volume = 1;    // 音量を調整（0.0 〜 1.0）
 
@@ -85,7 +85,7 @@ function startAudio() {
 
 // キー入力またはクリックで再生開始
 window.addEventListener('keydown', startAudio);
-window.addEventListener('mousedown', startAudio);これ音量を1より上にしたい
+window.addEventListener('mousedown', startAudio);
 
 let SEED = Math.random() * 10000;
 let p = { x: 0.5, y: 0.5, rx: 0.5, ry: 0.5 };
