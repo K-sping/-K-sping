@@ -69,23 +69,42 @@ const importArea = document.getElementById('importArea');
 const TILE_SIZE = 32;
 const VERSION = 1.6;
 
-// オーディオオブジェクトの作成
-const bgm = new Audio('ダンジョン探索BGM1.mp3');
-bgm.loop = true;      // ループ再生を有効にする
-bgm.volume = 1;    // 音量を調整（0.0 〜 1.0）
+const BGM_PATH = 'ダンジョン探索BGM1.mp3';
+const BOOST_LEVEL = 2.5;
 
-// ブラウザの制限を回避するための再生トリガー
+let audioContext = null;
+let bgmElement = null;
 let audioStarted = false;
-function startAudio() {
-    if (!audioStarted) {
-        bgm.play().catch(e => console.log("Audio play blocked:", e));
+
+function playSound() {
+    if (audioStarted) return;
+
+    // 1. Audioコンテキストを作成
+    audioContext = new (window.AudioContext || window.webkitAudioContext)();
+
+    // 2. Audio要素を作成（※crossOriginは設定しない）
+    bgmElement = new Audio();
+    bgmElement.src = BGM_PATH;
+    bgmElement.loop = true;
+
+    // 3. 接続
+    const source = audioContext.createMediaElementSource(bgmElement);
+    const gainNode = audioContext.createGain();
+    gainNode.gain.value = BOOST_LEVEL;
+
+    source.connect(gainNode);
+    gainNode.connect(audioContext.destination);
+
+    // 4. 再生
+    audioContext.resume().then(() => {
+        bgmElement.play();
         audioStarted = true;
-    }
+        console.log("再生成功！");
+    }).catch(e => console.error("エラー内容:", e));
 }
 
-// キー入力またはクリックで再生開始
-window.addEventListener('keydown', startAudio);
-window.addEventListener('mousedown', startAudio);
+window.addEventListener('mousedown', playSound, { once: true });
+window.addEventListener('keydown', playSound, { once: true });
 
 let SEED = Math.random() * 10000;
 let p = { x: 0.5, y: 0.5, rx: 0.5, ry: 0.5 };
